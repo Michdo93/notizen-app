@@ -2,7 +2,7 @@
 // WICHTIG: Hier die Render.com Backend-URL eintragen
 const API_BASE = window.location.hostname === 'localhost'
   ? 'http://localhost:8000'
-  : 'https://notizen-backend.onrender.com'; // ← Render.com URL anpassen
+  : 'https://notizen-backend-wbxj.onrender.com'; // ← Render.com URL anpassen
 
 // ── Auth Helpers ──────────────────────────────────────────────────────────────
 function getToken() { return localStorage.getItem('nz_token'); }
