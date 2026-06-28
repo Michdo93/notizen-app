@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notizen-App – Anmelden</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <span class="logo">📝</span>
+      <h1>NOTIZEN<em>APP</em></h1>
+      <p>Deine persönlichen Notizen – sicher und überall verfügbar</p>
+    </div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchTab('login')">Anmelden</button>
+      <button class="auth-tab" onclick="switchTab('register')">Registrieren</button>
+    </div>
+
+    <!-- Login -->
+    <div id="panel-login">
+      <div id="login-error" class="error-msg"></div>
+      <div class="field"><label>Benutzername</label><input type="text" id="l-user" placeholder="dein_username" autocomplete="username"></div>
+      <div class="field"><label>Passwort</label><input type="password" id="l-pass" placeholder="••••••••" autocomplete="current-password"></div>
+      <button class="btn" id="login-btn" onclick="doLogin()">Anmelden</button>
+    </div>
+
+    <!-- Register -->
+    <div id="panel-register" style="display:none">
+      <div id="reg-error"   class="error-msg"></div>
+      <div id="reg-success" class="success-msg"></div>
+      <div class="field"><label>Benutzername</label><input type="text" id="r-user" placeholder="max_mustermann" autocomplete="username"></div>
+      <div class="field"><label>E-Mail</label><input type="email" id="r-email" placeholder="max@example.de" autocomplete="email"></div>
+      <div class="field"><label>Passwort</label><input type="password" id="r-pass" placeholder="Min. 8 Zeichen" autocomplete="new-password"></div>
+      <div class="field"><label>Passwort wiederholen</label><input type="password" id="r-pass2" placeholder="••••••••" autocomplete="new-password"></div>
+      <button class="btn" id="register-btn" onclick="doRegister()">Konto erstellen</button>
+    </div>
+
+    <p style="text-align:center;margin-top:1.25rem;font-size:.8rem;color:var(--muted)">
+      Der erste registrierte Benutzer erhält automatisch Admin-Rechte.
+    </p>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+redirectIfLoggedIn();
+
+function switchTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach((b,i) => b.classList.toggle('active', ['login','register'][i]===tab));
+  document.getElementById('panel-login').style.display    = tab==='login'    ? 'block' : 'none';
+  document.getElementById('panel-register').style.display = tab==='register' ? 'block' : 'none';
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Enter') { const active = document.getElementById('panel-login').style.display !== 'none' ? 'login' : 'register'; active==='login' ? doLogin() : doRegister(); } });
+
+async function doLogin() {
+  hideError('login-error');
+  const u = document.getElementById('l-user').value.trim();
+  const p = document.getElementById('l-pass').value;
+  if (!u || !p) return showError('login-error', 'Bitte alle Felder ausfüllen.');
+  const btn = document.getElementById('login-btn');
+  btn.textContent = '…'; btn.disabled = true;
+  try {
+    const fd = new FormData();
+    fd.append('username', u); fd.append('password', p);
+    const data = await apiForm('/auth/login', fd);
+    setAuth(data.access_token, data.user);
+    window.location.href = 'pages/app.html';
+  } catch(e) {
+    showError('login-error', e.message);
+  } finally { btn.textContent = 'Anmelden'; btn.disabled = false; }
+}
+
+async function doRegister() {
+  hideError('reg-error');
+  const u  = document.getElementById('r-user').value.trim();
+  const em = document.getElementById('r-email').value.trim();
+  const p  = document.getElementById('r-pass').value;
+  const p2 = document.getElementById('r-pass2').value;
+  if (!u||!em||!p||!p2) return showError('reg-error','Bitte alle Felder ausfüllen.');
+  if (p !== p2) return showError('reg-error','Passwörter stimmen nicht überein.');
+  if (p.length < 8) return showError('reg-error','Passwort muss mindestens 8 Zeichen haben.');
+  const btn = document.getElementById('register-btn');
+  btn.textContent = '…'; btn.disabled = true;
+  try {
+    const data = await api('POST', '/auth/register', { username: u, email: em, password: p }, false);
+    setAuth(data.access_token, data.user);
+    window.location.href = 'pages/app.html';
+  } catch(e) {
+    showError('reg-error', e.message);
+  } finally { btn.textContent = 'Konto erstellen'; btn.disabled = false; }
+}
+</script>
+</body></html>

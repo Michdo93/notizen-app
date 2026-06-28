@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notizen-App</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<div class="app-wrap">
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-brand">📝 <span>NOTIZEN<em>APP</em></span></div>
+      <div class="sidebar-user" id="sidebar-user">–</div>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="app.html" class="active">📋 Alle Notizen</a>
+      <a href="app.html?filter=pinned">📌 Angepinnt</a>
+      <a href="app.html?filter=search" id="search-link">🔍 Suche</a>
+      <hr style="border:none;border-top:1px solid var(--border);margin:.5rem 0">
+      <button onclick="openNewNoteModal()">➕ Neue Notiz</button>
+      <span id="admin-link" style="display:none"><a href="admin.html">🛠 Administration</a></span>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="btn btn-outline btn-sm" onclick="logout()" style="width:100%">Abmelden</button>
+    </div>
+  </aside>
+  <div class="mobile-nav-overlay" id="nav-overlay" onclick="toggleSidebar()"></div>
+
+  <!-- Main -->
+  <main class="main-content">
+    <div class="page-title">
+      <span>
+        <button class="hamburger" onclick="toggleSidebar()">☰</button>
+        <em id="page-heading">Alle Notizen</em>
+      </span>
+      <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+        <input type="text" class="search-bar" id="search-input" placeholder="🔍 Suche…" oninput="filterNotes()" style="width:200px">
+        <button class="btn btn-sm" onclick="openNewNoteModal()">+ Neue Notiz</button>
+      </div>
+    </div>
+
+    <div id="spinner" class="spinner"></div>
+    <div class="notes-grid" id="notes-grid" style="display:none"></div>
+    <div class="empty-state" id="empty-state" style="display:none">
+      <span class="icon">📭</span>
+      <h3>Noch keine Notizen</h3>
+      <p>Erstelle deine erste Notiz mit dem Button oben.</p>
+    </div>
+  </main>
+</div>
+
+<!-- New/Edit Note Modal -->
+<div class="modal-overlay" id="note-modal" style="display:none">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('note-modal')">✕</button>
+    <h2 id="modal-title">Neue Notiz</h2>
+    <div id="modal-error" class="error-msg"></div>
+    <div class="field" style="margin-bottom:1rem"><label>Titel</label><input type="text" id="n-title" placeholder="Titel der Notiz" maxlength="200"></div>
+    <div class="field" style="margin-bottom:1rem"><label>Inhalt</label><textarea id="n-content" placeholder="Notiz schreiben…" rows="8"></textarea></div>
+    <div style="margin-bottom:1.25rem">
+      <div style="font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.5rem">Farbe</div>
+      <div class="color-options" id="color-options"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
+      <input type="checkbox" id="n-pinned" style="width:16px;height:16px;accent-color:var(--accent)">
+      <label for="n-pinned" style="font-size:.88rem;color:var(--muted);cursor:pointer">📌 Angepinnt</label>
+    </div>
+    <div style="display:flex;gap:.75rem">
+      <button class="btn" id="save-btn" onclick="saveNote()">Speichern</button>
+      <button class="btn btn-outline" onclick="closeModal('note-modal')">Abbrechen</button>
+      <button class="btn btn-danger btn-sm" id="delete-btn" style="margin-left:auto;display:none" onclick="deleteCurrentNote()">Löschen</button>
+    </div>
+  </div>
+</div>
+
+<script src="../js/api.js"></script>
+<script>
+requireAuth();
+
+let allNotes = [];
+let editingId = null;
+let selectedColor = NOTE_COLORS[0];
+
+// ── Init ──
+async function init() {
+  const user = getUser();
+  document.getElementById('sidebar-user').textContent = `👤 ${user.username}${user.is_admin ? ' · Admin' : ''}`;
+  if (user.is_admin) document.getElementById('admin-link').style.display = 'block';
+  buildColorOptions();
+  await loadNotes();
+
+  // URL filter
+  const params = new URLSearchParams(location.search);
+  if (params.get('filter') === 'pinned') {
+    document.getElementById('page-heading').textContent = 'Angepinnt';
+    document.getElementById('search-input').value = '';
+    filterNotes('pinned');
+  }
+}
+
+function buildColorOptions() {
+  document.getElementById('color-options').innerHTML = NOTE_COLORS.map(c =>
+    `<div class="color-opt${c===selectedColor?' selected':''}" style="background:${c}" onclick="selectColor('${c}')" title="${c}"></div>`
+  ).join('');
+}
+
+function selectColor(c) {
+  selectedColor = c;
+  document.querySelectorAll('.color-opt').forEach(el => el.classList.toggle('selected', el.style.background===c||el.style.backgroundColor===c));
+}
+
+// ── Load ──
+async function loadNotes() {
+  try {
+    allNotes = await api('GET', '/notizen');
+    renderNotes(allNotes);
+  } catch(e) {
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('empty-state').style.display = 'block';
+  }
+}
+
+function renderNotes(notes) {
+  document.getElementById('spinner').style.display = 'none';
+  if (!notes.length) {
+    document.getElementById('notes-grid').style.display = 'none';
+    document.getElementById('empty-state').style.display = 'block';
+    return;
+  }
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('notes-grid').style.display = 'grid';
+  document.getElementById('notes-grid').innerHTML = notes.map(n => `
+    <div class="note-card" style="background:${n.color}" onclick="openEditModal(${n.id})">
+      ${n.pinned ? '<span class="pin">📌</span>' : ''}
+      <h3>${escHtml(n.title)}</h3>
+      <div class="preview">${escHtml(n.content)}</div>
+      <div class="meta">Bearbeitet: ${fmtDate(n.updated_at)}</div>
+      <div class="card-actions">
+        <button class="btn btn-sm btn-outline" onclick="event.stopPropagation();togglePin(${n.id},${n.pinned})">${n.pinned?'📌 Lösen':'📌 Pinnen'}</button>
+        <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();quickDelete(${n.id})">🗑</button>
+      </div>
+    </div>`).join('');
+}
+
+function filterNotes(forceFilter) {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  let filtered = allNotes;
+  if (forceFilter === 'pinned') filtered = allNotes.filter(n => n.pinned);
+  else if (q) filtered = allNotes.filter(n => n.title.toLowerCase().includes(q) || n.content.toLowerCase().includes(q));
+  renderNotes(filtered);
+}
+
+// ── New Note Modal ──
+function openNewNoteModal() {
+  editingId = null;
+  selectedColor = NOTE_COLORS[0];
+  document.getElementById('modal-title').textContent = 'Neue Notiz';
+  document.getElementById('n-title').value = '';
+  document.getElementById('n-content').value = '';
+  document.getElementById('n-pinned').checked = false;
+  document.getElementById('delete-btn').style.display = 'none';
+  hideError('modal-error');
+  buildColorOptions();
+  openModal('note-modal');
+  document.getElementById('n-title').focus();
+}
+
+function openEditModal(id) {
+  const n = allNotes.find(x => x.id === id);
+  if (!n) return;
+  editingId = id;
+  selectedColor = n.color;
+  document.getElementById('modal-title').textContent = 'Notiz bearbeiten';
+  document.getElementById('n-title').value   = n.title;
+  document.getElementById('n-content').value = n.content;
+  document.getElementById('n-pinned').checked = n.pinned;
+  document.getElementById('delete-btn').style.display = 'inline-block';
+  hideError('modal-error');
+  buildColorOptions();
+  openModal('note-modal');
+}
+
+// ── Save ──
+async function saveNote() {
+  const title   = document.getElementById('n-title').value.trim();
+  const content = document.getElementById('n-content').value;
+  const pinned  = document.getElementById('n-pinned').checked;
+  if (!title) return showError('modal-error', 'Titel ist erforderlich.');
+  const btn = document.getElementById('save-btn');
+  btn.textContent = '…'; btn.disabled = true;
+  try {
+    const body = { title, content, color: selectedColor, pinned };
+    if (editingId) {
+      const updated = await api('PUT', `/notizen/${editingId}`, body);
+      allNotes = allNotes.map(n => n.id === editingId ? updated : n);
+    } else {
+      const created = await api('POST', '/notizen', body);
+      allNotes.unshift(created);
+    }
+    closeModal('note-modal');
+    renderNotes(allNotes);
+  } catch(e) { showError('modal-error', e.message); }
+  finally { btn.textContent = 'Speichern'; btn.disabled = false; }
+}
+
+async function deleteCurrentNote() {
+  if (!editingId || !confirm('Notiz wirklich löschen?')) return;
+  await api('DELETE', `/notizen/${editingId}`);
+  allNotes = allNotes.filter(n => n.id !== editingId);
+  closeModal('note-modal');
+  renderNotes(allNotes);
+}
+
+async function quickDelete(id) {
+  if (!confirm('Notiz löschen?')) return;
+  await api('DELETE', `/notizen/${id}`);
+  allNotes = allNotes.filter(n => n.id !== id);
+  renderNotes(allNotes);
+}
+
+async function togglePin(id, currentPin) {
+  const updated = await api('PUT', `/notizen/${id}`, { pinned: !currentPin });
+  allNotes = allNotes.map(n => n.id === id ? updated : n);
+  renderNotes(allNotes);
+}
+
+function logout() { clearAuth(); window.location.href = '../index.html'; }
+
+function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+init();
+</script>
+</body></html>

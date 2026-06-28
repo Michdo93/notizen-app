@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin – Notizen-App</title>
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+<div class="app-wrap">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-brand">📝 <span>NOTIZEN<em>APP</em></span></div>
+      <div class="sidebar-user" id="sidebar-user">–</div>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="app.html">📋 Alle Notizen</a>
+      <a href="admin.html" class="active">🛠 Administration</a>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="btn btn-outline btn-sm" onclick="logout()" style="width:100%">Abmelden</button>
+    </div>
+  </aside>
+  <div class="mobile-nav-overlay" id="nav-overlay" onclick="toggleSidebar()"></div>
+
+  <main class="main-content">
+    <div class="page-title">
+      <span><button class="hamburger" onclick="toggleSidebar()">☰</button> 🛠 <em>Administration</em></span>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid" id="stats-grid">
+      <div class="stat-card"><div class="val" id="s-users">–</div><div class="lbl">Benutzer gesamt</div></div>
+      <div class="stat-card"><div class="val" id="s-active">–</div><div class="lbl">Aktive Benutzer</div></div>
+      <div class="stat-card"><div class="val" id="s-notizen">–</div><div class="lbl">Notizen gesamt</div></div>
+      <div class="stat-card"><div class="val" id="s-pinned">–</div><div class="lbl">Angepinnte Notizen</div></div>
+    </div>
+
+    <!-- Users Table -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+      <div style="padding:1.25rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <div style="font-family:'Outfit',sans-serif;font-weight:700;font-size:1rem">Benutzer</div>
+        <span id="user-count" style="font-size:.8rem;color:var(--muted)"></span>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Benutzername</th><th>E-Mail</th><th>Rollen</th>
+              <th>Status</th><th>Registriert</th><th>Aktionen</th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+        <div id="users-spinner" class="spinner"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="../js/api.js"></script>
+<script>
+requireAdmin();
+
+let users = [];
+const myId = getUser()?.id;
+
+async function init() {
+  const user = getUser();
+  document.getElementById('sidebar-user').textContent = `👤 ${user.username} · Admin`;
+  await Promise.all([loadStats(), loadUsers()]);
+}
+
+async function loadStats() {
+  try {
+    const s = await api('GET', '/admin/stats');
+    document.getElementById('s-users').textContent   = s.total_users;
+    document.getElementById('s-active').textContent  = s.active_users;
+    document.getElementById('s-notizen').textContent = s.total_notizen;
+    document.getElementById('s-pinned').textContent  = s.pinned_notizen;
+  } catch(e) {}
+}
+
+async function loadUsers() {
+  try {
+    users = await api('GET', '/admin/users');
+    document.getElementById('users-spinner').style.display = 'none';
+    document.getElementById('user-count').textContent = `${users.length} Benutzer`;
+    renderUsers();
+  } catch(e) {
+    document.getElementById('users-spinner').style.display = 'none';
+  }
+}
+
+function renderUsers() {
+  document.getElementById('users-tbody').innerHTML = users.map(u => `
+    <tr>
+      <td style="color:var(--muted)">#${u.id}</td>
+      <td><strong>${escHtml(u.username)}</strong></td>
+      <td style="color:var(--muted);font-size:.85rem">${escHtml(u.email)}</td>
+      <td>
+        ${u.is_admin ? '<span class="badge badge-purple">Admin</span>' : '<span class="badge" style="background:var(--surface2);color:var(--muted)">User</span>'}
+      </td>
+      <td>
+        ${u.is_active
+          ? '<span class="badge badge-green">Aktiv</span>'
+          : '<span class="badge badge-red">Gesperrt</span>'}
+      </td>
+      <td style="color:var(--muted);font-size:.82rem">${fmtDate(u.created_at)}</td>
+      <td>
+        ${u.id !== myId ? `
+          <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+            <button class="btn btn-sm btn-outline" onclick="toggleActive(${u.id})">${u.is_active ? 'Sperren' : 'Entsperren'}</button>
+            <button class="btn btn-sm btn-outline" onclick="toggleAdmin(${u.id})">${u.is_admin ? 'Admin entziehen' : 'Admin machen'}</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id}, '${escHtml(u.username)}')">Löschen</button>
+          </div>` : '<span style="font-size:.8rem;color:var(--muted)">Eigenes Konto</span>'}
+      </td>
+    </tr>`).join('');
+}
+
+async function toggleActive(id) {
+  try {
+    const updated = await api('PATCH', `/admin/users/${id}/toggle-active`);
+    users = users.map(u => u.id === id ? updated : u);
+    renderUsers(); loadStats();
+  } catch(e) { alert(e.message); }
+}
+
+async function toggleAdmin(id) {
+  try {
+    const updated = await api('PATCH', `/admin/users/${id}/toggle-admin`);
+    users = users.map(u => u.id === id ? updated : u);
+    renderUsers();
+  } catch(e) { alert(e.message); }
+}
+
+async function deleteUser(id, name) {
+  if (!confirm(`Benutzer „${name}" und alle seine Notizen wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`)) return;
+  try {
+    await api('DELETE', `/admin/users/${id}`);
+    users = users.filter(u => u.id !== id);
+    renderUsers(); loadStats();
+  } catch(e) { alert(e.message); }
+}
+
+function logout() { clearAuth(); window.location.href = '../index.html'; }
+function escHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+init();
+</script>
+</body></html>
